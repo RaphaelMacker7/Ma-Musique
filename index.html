@@ -175,9 +175,9 @@ svg{display:block}
   <div id="main"></div>
 </div>
 
-<input id="file" type="file" multiple hidden>
+<input id="file" type="file" accept="audio/mpeg,.mp3" multiple hidden>
 
-<input id="folder" type="file" webkitdirectory multiple hidden>
+<input id="fileall" type="file" multiple hidden>
 
 <div id="mini" class="mini" hidden>
   <span class="cv" id="mcv" data-open aria-hidden="true"></span>
@@ -451,9 +451,9 @@ function header(title){
 function emptyView(){
   return header('Ma Musique')+
   '<div class="empty"><div class="big">'+ic('note')+'</div><h2>Ajoute ta musique</h2>'+
-  '<p>Ouvre Téléchargements (ou n’importe quel dossier), appuie sur « Sélectionner » puis « Tout ». Tous les fichiers sont sélectionnables, mais seuls les MP3 sont gardés. Tout reste sur ton appareil.</p>'+
+  '<p>Ouvre Téléchargements, appuie sur « Sélectionner » puis « Tout » : seuls tes MP3 sont proposés. Si tu ne vois rien, choisis « Afficher tous les fichiers ». Tout reste sur ton appareil.</p>'+
   '<button class="btn" data-add>'+ic('plus')+'Choisir mes morceaux</button>'+
-  '<button class="btn alt" data-folder>'+ic('albums')+'Importer un dossier entier</button></div>';
+  '<button class="btn alt" data-folder>'+ic('albums')+'Afficher tous les fichiers</button></div>';
 }
 function songsView(){
   shown=sortSongs(tracks);
@@ -461,7 +461,7 @@ function songsView(){
   var mins=Math.round(tot/60);
   return header('Titres')+'<p class="sub">'+plural(tracks.length,'titre','titres')+(mins?' · '+(mins>=60?Math.floor(mins/60)+' h '+String(mins%60).padStart(2,'0'):mins+' min'):'')+'</p>'+actions()+
     '<div class="list">'+shown.map(row).join('')+'</div>'+
-    '<div class="foot"><button class="link" data-folder>Importer un dossier</button></div>'+
+    '<div class="foot"><button class="link" data-add>Ajouter des morceaux</button></div>'+
     '<div class="foot"><button class="link" data-clear>'+(confirmClear?'Confirmer : tout supprimer':'Vider la bibliothèque')+'</button></div>';
 }
 function albumsView(){
@@ -670,7 +670,7 @@ function onPick(e){
   e.target.value='';
 }
 $('#file').addEventListener('change',onPick);
-$('#folder').addEventListener('change',onPick);
+$('#fileall').addEventListener('change',onPick);
 
 document.addEventListener('click',function(e){
   var el=e.target.closest?e.target.closest('[data-tab],[data-add],[data-folder],[data-play],[data-playall],[data-shuffle],[data-album],[data-artist],[data-back],[data-clear],[data-open]'):null;
@@ -678,7 +678,7 @@ document.addEventListener('click',function(e){
   var d=el.dataset;
   if(el.hasAttribute('data-tab')){tab=d.tab;detail=null;confirmClear=false;render();window.scrollTo(0,0);if(tab==='search'){var q=$('#q');if(q)q.focus()}return}
   if(el.hasAttribute('data-add')){$('#file').click();return}
-  if(el.hasAttribute('data-folder')){$('#folder').click();return}
+  if(el.hasAttribute('data-folder')){$('#fileall').click();return}
   if(el.hasAttribute('data-play')){
     var i=-1;for(var k=0;k<shown.length;k++)if(shown[k].id===d.play){i=k;break}
     if(i>-1)playQueue(shown,i,false);
