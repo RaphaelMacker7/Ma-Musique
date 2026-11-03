@@ -256,24 +256,44 @@ function ic(n){
 }
 
 /* storage (IndexedDB keeps the imported files inside this browser) */
+var dbp=null;
 function openDb(){
-  return new Promise(function(res,rej){
+  if(dbp)return dbp;
+  dbp=new Promise(function(res,rej){
     try{
-      var r=indexedDB.open('ma-musique',1);
-      r.onupgradeneeded=function(){r.result.createObjectStore('tracks',{keyPath:'id'})};
+      var r=indexedDB.open('ma-musique',2);
+      r.onupgradeneeded=function(){
+        var d=r.result;
+        if(d.objectStoreNames.contains('tracks'))d.deleteObjectStore('tracks');
+        if(!d.objectStoreNames.contains('meta'))d.createObjectStore('meta',{keyPath:'id'});
+        if(!d.objectStoreNames.contains('data'))d.createObjectStore('data');
+      };
       r.onsuccess=function(){res(r.result)};
-      r.onerror=function(){rej(r.error)};
-    }catch(e){rej(e)}
+      r.onerror=function(){dbp=null;rej(r.error)};
+    }catch(e){dbp=null;rej(e)}
   });
+  return dbp;
 }
 function dbAll(){
   return openDb().then(function(db){return new Promise(function(res){
-    var q=db.transaction('tracks').objectStore('tracks').getAll();
+    var q=db.transaction('meta').objectStore('meta').getAll();
     q.onsuccess=function(){res(q.result||[])};q.onerror=function(){res([])};
   })}).catch(function(){return []});
 }
-function dbPut(rec){openDb().then(function(db){db.transaction('tracks','readwrite').objectStore('tracks').put(rec)}).catch(function(){})}
-function dbClear(){openDb().then(function(db){db.transaction('tracks','readwrite').objectStore('tracks').clear()}).catch(function(){})}
+function dbPut(store,val,key){
+  return openDb().then(function(db){return new Promise(function(res){
+    var tx=db.transaction(store,'readwrite');
+    if(key===undefined)tx.objectStore(store).put(val);else tx.objectStore(store).put(val,key);
+    tx.oncomplete=function(){res(true)};tx.onerror=function(){res(false)};tx.onabort=function(){res(false)};
+  })}).catch(function(){return false});
+}
+function dbData(id){
+  return openDb().then(function(db){return new Promise(function(res){
+    var q=db.transaction('data').objectStore('data').get(id);
+    q.onsuccess=function(){res(q.result||null)};q.onerror=function(){res(null)};
+  })}).catch(function(){return null});
+}
+function dbClear(){openDb().then(function(db){var tx=db.transaction(['meta','data'],'readwrite');tx.objectStore('meta').clear();tx.objectStore('data').clear()}).catch(function(){})}
 
 /* state */
 var tracks=[],shown=[];
@@ -327,8 +347,7 @@ var TABS=[['songs','Titres','note'],['albums','Albums','albums'],['artists','Art
 
 function byId(id){for(var i=0;i<tracks.length;i++)if(tracks[i].id===id)return tracks[i];return null}
 function cur(){return qi>=0?byId(queue[qi]):null}
-function srcUrl(t){if(!t.url)t.url=URL.createObjectURL(t.file);return t.url}
-function hydrate(rec){rec.artUrl=rec.art?URL.createObjectURL(rec.art):'';return rec}
+function hydrate(rec){rec.artUrl=rec.art&&rec.art.buf?URL.createObjectURL(new Blob([rec.art.buf],{type:rec.art.type||'image/jpeg'})):'';return rec}
 
 /* tags */
 function guess(name){
@@ -346,7 +365,7 @@ function readTags(file){
         onSuccess:function(r){
           clearTimeout(to);
           var g=(r&&r.tags)||{},art=null;
-          if(g.picture&&g.picture.data){try{art=new Blob([new Uint8Array(g.picture.data)],{type:g.picture.format||'image/jpeg'})}catch(e){}}
+          if(g.picture&&g.picture.data){try{art={buf:new Uint8Array(g.picture.data).buffer,type:g.picture.format||'image/jpeg'}}catch(e){}}
           res({title:g.title||fb.title,artist:g.artist||fb.artist,album:g.album||fb.album,trackNo:parseInt(String(g.track||'').split('/')[0],10)||0,art:art});
         },
         onError:function(){clearTimeout(to);res(fb)}
@@ -377,14 +396,18 @@ async function addFiles(files){
     status('Import '+(i+1)+' sur '+list.length+'…');
     var id=[f.name,f.size,f.lastModified].join('|');
     if(byId(id))continue;
-    var blob;
-    try{blob=new Blob([await f.arrayBuffer()],{type:'audio/mpeg'})}catch(e){blob=f}
+    var buf;
+    try{buf=await f.arrayBuffer()}catch(e){continue}
+    var blob=new Blob([buf],{type:'audio/mpeg'});
     var m=await readTags(blob);
     var u=URL.createObjectURL(blob);
     var d=await getDuration(u);
-    var rec={id:id,file:blob,title:m.title,artist:m.artist,album:m.album,trackNo:m.trackNo,art:m.art,duration:d};
-    dbPut(rec);
-    hydrate(rec);rec.url=u;rec.mem=true;
+    URL.revokeObjectURL(u);
+    var rec={id:id,title:m.title,artist:m.artist,album:m.album,trackNo:m.trackNo,art:m.art,duration:d,size:buf.byteLength};
+    var saved=await dbPut('data',buf,id);
+    if(!saved){toast('Le stockage est plein ou indisponible.');break}
+    await dbPut('meta',rec);
+    hydrate(rec);
     tracks.push(rec);added++;
     if(i%4===3)render();
   }
@@ -496,7 +519,7 @@ function render(){
 /* player */
 function shuffled(a){var r=a.slice();for(var i=r.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=r[i];r[i]=r[j];r[j]=t}return r}
 function playQueue(list,start,shuf){
-  ensureFx();
+  ensureFx();unlock();
   orig=list.map(function(t){return t.id});
   var id=orig[start];
   shuffle=!!shuf;
@@ -507,21 +530,31 @@ function playQueue(list,start,shuf){
 function load(play){
   var t=cur();if(!t)return;
   mediaSession(t);ui();prog();
-  prepare(t).then(function(){
+  prepare(t).then(function(ok){
     if(cur()!==t)return;
-    audio.src=srcUrl(t);
+    if(!ok){toast('Ce titre n’est plus dans la bibliothèque : réimporte-le.');return}
+    audio.src=t.url;
     applyTempo();
     if(play)audio.play().catch(function(){toast('Appuie sur lecture pour démarrer.')});
   });
 }
-/* iPhone : un fichier relu depuis le stockage du navigateur est d'abord copié en mémoire pour être lisible */
+/* Le fichier est lu depuis le stockage du navigateur seulement au moment de l'écoute, pour ne pas saturer la mémoire */
+var lastT=null,unlocked=false;
+var SIL='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAABErAAABAAgAZGF0YQAAAAA=';
+function unlock(){
+  if(unlocked||audio.getAttribute('src'))return;
+  unlocked=true;
+  try{audio.src=SIL;var p=audio.play();if(p&&p.catch)p.catch(function(){})}catch(e){}
+}
 function prepare(t){
-  if(t.mem&&t.url)return Promise.resolve();
-  return t.file.arrayBuffer().then(function(b){
-    var bl=new Blob([b],{type:'audio/mpeg'});
-    if(t.url)URL.revokeObjectURL(t.url);
-    t.file=bl;t.url=URL.createObjectURL(bl);t.mem=true;
-  }).catch(function(){});
+  if(t.url)return Promise.resolve(true);
+  return dbData(t.id).then(function(buf){
+    if(!buf)return false;
+    if(lastT&&lastT!==t&&lastT.url){URL.revokeObjectURL(lastT.url);lastT.url=''}
+    t.url=URL.createObjectURL(new Blob([buf],{type:'audio/mpeg'}));
+    lastT=t;
+    return true;
+  });
 }
 function next(auto){
   if(qi<queue.length-1){qi++;load(true)}
@@ -532,7 +565,7 @@ function prev(){
   if(audio.currentTime>3||qi<=0){audio.currentTime=0;return}
   qi--;load(true);
 }
-function toggle(){if(!cur())return;ensureFx();if(audio.paused)audio.play().catch(function(){});else audio.pause()}
+function toggle(){if(!cur())return;ensureFx();unlock();if(audio.paused)audio.play().catch(function(){});else audio.pause()}
 function mediaSession(t){
   if(!('mediaSession' in navigator))return;
   try{
@@ -586,12 +619,12 @@ audio.addEventListener('play',ui);
 audio.addEventListener('pause',ui);
 audio.addEventListener('timeupdate',prog);
 audio.addEventListener('loadedmetadata',function(){applyTempo();var t=cur();if(t&&!t.duration&&isFinite(audio.duration)){t.duration=audio.duration}prog()});
-audio.addEventListener('ended',function(){if(repeat===2){audio.currentTime=0;audio.play().catch(function(){})}else next(true)});
+audio.addEventListener('ended',function(){if(/^data:/.test(audio.src))return;if(repeat===2){audio.currentTime=0;audio.play().catch(function(){})}else next(true)});
 audio.addEventListener('error',function(){
-  var t=cur();if(!t)return;
+  var t=cur();if(!t||/^data:/.test(audio.src))return;
   var c=audio.error?audio.error.code:0;
-  var mb=t.file?(t.file.size/1048576).toFixed(1)+' Mo':'?';
-  toast('Lecture impossible (erreur '+c+', '+mb+', type '+(t.file&&t.file.type||'inconnu')+').');
+  var mb=t.size?(t.size/1048576).toFixed(1)+' Mo':'?';
+  toast('Lecture impossible (erreur '+c+', '+mb+').');
 });
 
 var seek=$('#seek');
@@ -681,11 +714,9 @@ applyTempo();
 ui();render();fxUi();
 dbAll().then(function(recs){
   if(!recs.length)return;
-  var ok=recs.filter(function(r){return r.file&&r.file.size>0});
-  ok.forEach(hydrate);
-  tracks=ok;
+  recs.forEach(hydrate);
+  tracks=recs;
   render();
-  if(ok.length<recs.length)toast('Certains titres ne sont plus lisibles : réimporte-les.');
 });
 })();
 </script>
