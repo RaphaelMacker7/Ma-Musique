@@ -153,6 +153,11 @@ svg{display:block}
 .sub-ctl button{width:48px;height:44px;display:grid;place-items:center;color:var(--fg2);border-radius:12px}
 .sub-ctl button.on{color:var(--accent);background:var(--bg2)}
 .sub-ctl svg{width:24px;height:24px}
+.fxp{display:flex;flex-direction:column;gap:6px;background:var(--bg2);border-radius:14px;padding:10px 14px;margin:6px 0}
+.fxr{display:grid;grid-template-columns:64px 1fr 56px;align-items:center;gap:10px;font-size:14px}
+.fxr input{width:100%;min-width:0;accent-color:var(--accent);margin:0}
+.fxr output{text-align:right;font-variant-numeric:tabular-nums;color:var(--fg2)}
+.fxp .link{padding:4px 0 0;align-self:center}
 @media (max-height:640px){.stage .sq{width:min(100%,34vh)}}
 
 .toast{position:fixed;left:50%;bottom:calc(var(--tab) + env(safe-area-inset-bottom,0px) + 84px);transform:translate(-50%,12px);opacity:0;pointer-events:none;
@@ -191,6 +196,11 @@ svg{display:block}
   <div class="inner">
     <div class="stage"><span class="sq" id="fcv"></span></div>
     <div class="meta"><b id="ft"></b><span id="fa"></span></div>
+    <div class="fxp" id="fxp" hidden>
+      <label class="fxr"><span>Vitesse</span><input id="tempo" type="range" min="50" max="200" step="5" value="100"><output id="tempoV">1,00×</output></label>
+      <label class="fxr"><span>Tonalité</span><input id="pitch" type="range" min="-12" max="12" step="1" value="0"><output id="pitchV">0</output></label>
+      <button class="link" id="fxreset">Réinitialiser</button>
+    </div>
     <input class="seek" id="seek" type="range" min="0" max="1000" value="0" aria-label="Position dans le morceau">
     <div class="times"><span id="tc">0:00</span><span id="td">-0:00</span></div>
     <div class="main-ctl">
@@ -200,6 +210,7 @@ svg{display:block}
     </div>
     <div class="sub-ctl">
       <button id="shuf" aria-label="Lecture aléatoire"></button>
+      <button id="fxb" aria-label="Vitesse et tonalité"></button>
       <button id="rep" aria-label="Répéter"></button>
     </div>
   </div>
@@ -208,6 +219,8 @@ svg{display:block}
 <div id="toast" class="toast" role="status"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+<script>window.TONE_SILENCE_LOGGING=true;</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 <script>
 (function(){
 'use strict';
@@ -234,7 +247,8 @@ var LINE={
   note:'<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>',
   albums:'<rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="12" cy="12" r="3.6"/>',
   artists:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
-  search:'<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>'
+  search:'<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  sliders:'<path d="M4 7h9M19 7h1M4 17h1M11 17h9"/><circle cx="16" cy="7" r="2.2"/><circle cx="8" cy="17" r="2.2"/>'
 };
 function ic(n){
   if(FILL[n])return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">'+FILL[n]+'</svg>';
@@ -266,6 +280,49 @@ var tracks=[],shown=[];
 var tab='songs',detail=null,query='',confirmClear=false;
 var queue=[],orig=[],qi=-1,shuffle=false,repeat=0,dragging=false;
 var audio=new Audio();audio.preload='auto';
+
+/* vitesse (sans changer la tonalité) et tonalité (sans changer la vitesse) */
+var tempo=1,pitch=0,fxSrc=null,fxNode=null,fxCtx=null,fxFail=false,routedZero=null;
+try{var sv=JSON.parse(localStorage.getItem('mm-fx')||'{}');if(sv.t)tempo=sv.t;if(sv.p)pitch=sv.p}catch(e){}
+function saveFx(){try{localStorage.setItem('mm-fx',JSON.stringify({t:tempo,p:pitch}))}catch(e){}}
+function applyTempo(){
+  audio.defaultPlaybackRate=tempo;audio.playbackRate=tempo;
+  audio.preservesPitch=true;audio.webkitPreservesPitch=true;audio.mozPreservesPitch=true;
+}
+function route(){
+  if(!fxSrc||fxFail)return;
+  var z=pitch===0;
+  try{
+    if(z!==routedZero){
+      try{fxSrc.disconnect()}catch(e){}
+      if(z)fxSrc.connect(fxCtx.destination);else window.Tone.connect(fxSrc,fxNode);
+      routedZero=z;
+    }
+    if(!z)fxNode.pitch=pitch;
+  }catch(e){
+    fxFail=true;
+    try{fxSrc.connect(fxCtx.destination)}catch(e2){}
+  }
+}
+function ensureFx(){
+  if(fxSrc||fxFail||!window.Tone)return;
+  try{
+    window.Tone.start().catch(function(){});
+    fxCtx=window.Tone.getContext().rawContext;
+    fxSrc=fxCtx.createMediaElementSource(audio);
+    try{fxNode=new window.Tone.PitchShift({pitch:pitch,windowSize:0.1});fxNode.toDestination()}
+    catch(e){fxFail=true;fxSrc.connect(fxCtx.destination);return}
+    route();
+    if(fxCtx.resume)fxCtx.resume();
+  }catch(e){fxFail=true}
+}
+function fxUi(){
+  $('#tempo').value=Math.round(tempo*100);
+  $('#tempoV').textContent=tempo.toFixed(2).replace('.',',')+'×';
+  $('#pitch').value=pitch;
+  $('#pitchV').textContent=(pitch>0?'+':'')+pitch;
+  $('#fxb').classList.toggle('on',tempo!==1||pitch!==0);
+}
 var TABS=[['songs','Titres','note'],['albums','Albums','albums'],['artists','Artistes','artists'],['search','Recherche','search']];
 
 function byId(id){for(var i=0;i<tracks.length;i++)if(tracks[i].id===id)return tracks[i];return null}
@@ -320,10 +377,12 @@ async function addFiles(files){
     status('Import '+(i+1)+' sur '+list.length+'…');
     var id=[f.name,f.size,f.lastModified].join('|');
     if(byId(id))continue;
-    var m=await readTags(f);
-    var u=URL.createObjectURL(f);
+    var blob;
+    try{blob=new Blob([await f.arrayBuffer()],{type:'audio/mpeg'})}catch(e){blob=f}
+    var m=await readTags(blob);
+    var u=URL.createObjectURL(blob);
     var d=await getDuration(u);
-    var rec={id:id,file:f,title:m.title,artist:m.artist,album:m.album,trackNo:m.trackNo,art:m.art,duration:d};
+    var rec={id:id,file:blob,title:m.title,artist:m.artist,album:m.album,trackNo:m.trackNo,art:m.art,duration:d};
     dbPut(rec);
     hydrate(rec);rec.url=u;
     tracks.push(rec);added++;
@@ -437,6 +496,7 @@ function render(){
 /* player */
 function shuffled(a){var r=a.slice();for(var i=r.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=r[i];r[i]=r[j];r[j]=t}return r}
 function playQueue(list,start,shuf){
+  ensureFx();
   orig=list.map(function(t){return t.id});
   var id=orig[start];
   shuffle=!!shuf;
@@ -447,6 +507,7 @@ function playQueue(list,start,shuf){
 function load(play){
   var t=cur();if(!t)return;
   audio.src=srcUrl(t);
+  applyTempo();
   if(play)audio.play().catch(function(){});
   mediaSession(t);ui();prog();
 }
@@ -459,7 +520,7 @@ function prev(){
   if(audio.currentTime>3||qi<=0){audio.currentTime=0;return}
   qi--;load(true);
 }
-function toggle(){if(!cur())return;if(audio.paused)audio.play().catch(function(){});else audio.pause()}
+function toggle(){if(!cur())return;ensureFx();if(audio.paused)audio.play().catch(function(){});else audio.pause()}
 function mediaSession(t){
   if(!('mediaSession' in navigator))return;
   try{
@@ -481,6 +542,7 @@ function ui(){
   $('#fnext').innerHTML=ic('next');
   $('#shuf').innerHTML=ic('shuffle');
   $('#rep').innerHTML=ic(repeat===2?'repeat1':'repeat');
+  $('#fxb').innerHTML=ic('sliders');
   $('#close').innerHTML=ic('down').replace('<svg','<svg style="width:30px;height:30px"');
   $('#shuf').classList.toggle('on',shuffle);
   $('#rep').classList.toggle('on',repeat>0);
@@ -511,9 +573,14 @@ function openSheet(o){
 audio.addEventListener('play',ui);
 audio.addEventListener('pause',ui);
 audio.addEventListener('timeupdate',prog);
-audio.addEventListener('loadedmetadata',function(){var t=cur();if(t&&!t.duration&&isFinite(audio.duration)){t.duration=audio.duration}prog()});
+audio.addEventListener('loadedmetadata',function(){applyTempo();var t=cur();if(t&&!t.duration&&isFinite(audio.duration)){t.duration=audio.duration}prog()});
 audio.addEventListener('ended',function(){if(repeat===2){audio.currentTime=0;audio.play().catch(function(){})}else next(true)});
-audio.addEventListener('error',function(){if(cur())toast('Impossible de lire ce fichier.')});
+audio.addEventListener('error',function(){
+  var t=cur();if(!t)return;
+  var c=audio.error?audio.error.code:0;
+  var mb=t.file?(t.file.size/1048576).toFixed(1)+' Mo':'?';
+  toast('Lecture impossible (erreur '+c+', '+mb+', type '+(t.file&&t.file.type||'inconnu')+').');
+});
 
 var seek=$('#seek');
 seek.addEventListener('input',function(){
@@ -589,12 +656,24 @@ document.addEventListener('input',function(e){
   if(e.target&&e.target.id==='q'){query=e.target.value;results()}
 });
 
-ui();render();
+$('#fxb').addEventListener('click',function(){var p=$('#fxp');p.hidden=!p.hidden});
+$('#tempo').addEventListener('input',function(e){tempo=(+e.target.value)/100;applyTempo();fxUi();saveFx()});
+$('#pitch').addEventListener('input',function(e){
+  pitch=+e.target.value;
+  if(pitch!==0)ensureFx();
+  route();fxUi();saveFx();
+  if(pitch!==0&&(fxFail||!window.Tone))toast('La tonalité n’est pas disponible ici.');
+});
+$('#fxreset').addEventListener('click',function(){tempo=1;pitch=0;applyTempo();route();fxUi();saveFx()});
+applyTempo();
+ui();render();fxUi();
 dbAll().then(function(recs){
   if(!recs.length)return;
-  recs.forEach(hydrate);
-  tracks=recs;
+  var ok=recs.filter(function(r){return r.file&&r.file.size>0});
+  ok.forEach(hydrate);
+  tracks=ok;
   render();
+  if(ok.length<recs.length)toast('Certains titres ne sont plus lisibles : réimporte-les.');
 });
 })();
 </script>
