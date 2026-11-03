@@ -170,7 +170,7 @@ svg{display:block}
   <div id="main"></div>
 </div>
 
-<input id="file" type="file" accept="audio/*,.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.aif,.aiff" multiple hidden>
+<input id="file" type="file" multiple hidden>
 
 <input id="folder" type="file" webkitdirectory multiple hidden>
 
@@ -312,8 +312,8 @@ function status(msg){var s=$('#status');s.hidden=!msg;s.textContent=msg||''}
 var tt;
 function toast(msg){var t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(tt);tt=setTimeout(function(){t.classList.remove('show')},2600)}
 async function addFiles(files){
-  var list=Array.prototype.slice.call(files).filter(function(f){return /^audio\//.test(f.type)||/\.(mp3|m4a|aac|flac|wav|ogg|opus|aiff?)$/i.test(f.name)});
-  if(!list.length){toast('Aucun fichier audio trouvé.');return}
+  var list=Array.prototype.slice.call(files).filter(function(f){return f.type==='audio/mpeg'||/\.mp3$/i.test(f.name)});
+  if(!list.length){toast('Aucun fichier MP3 trouvé.');return}
   var added=0;
   for(var i=0;i<list.length;i++){
     var f=list[i];
@@ -369,7 +369,7 @@ function header(title){
 function emptyView(){
   return header('Ma Musique')+
   '<div class="empty"><div class="big">'+ic('note')+'</div><h2>Ajoute ta musique</h2>'+
-  '<p>Ouvre Téléchargements (ou n’importe quel dossier), appuie sur « Sélectionner » puis « Tout ». Seuls les fichiers audio sont gardés, le reste est ignoré. Tout reste sur ton appareil.</p>'+
+  '<p>Ouvre Téléchargements (ou n’importe quel dossier), appuie sur « Sélectionner » puis « Tout ». Tous les fichiers sont sélectionnables, mais seuls les MP3 sont gardés. Tout reste sur ton appareil.</p>'+
   '<button class="btn" data-add>'+ic('plus')+'Choisir mes morceaux</button>'+
   '<button class="btn alt" data-folder>'+ic('albums')+'Importer un dossier entier</button></div>';
 }
