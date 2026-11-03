@@ -1,4 +1,8 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Ma Musique</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
@@ -91,7 +95,8 @@ svg{display:block}
 .empty h2{margin:8px 0 0;font-size:24px}
 .empty p{margin:0;color:var(--fg2);max-width:34ch;font-size:15px;line-height:1.45}
 .btn{display:inline-flex;align-items:center;gap:8px;height:48px;padding:0 24px;border-radius:14px;background:var(--accent);color:var(--accent-fg);font-weight:650;margin-top:10px}
-.link{color:var(--fg2);font-size:14px;padding:22px 0 0;text-decoration:underline;text-underline-offset:3px}
+.btn.alt{background:var(--bg2);color:var(--accent);margin-top:0}
+.link{color:var(--fg2);font-size:14px;padding:18px 0 0;text-decoration:underline;text-underline-offset:3px}
 .foot{display:flex;justify-content:center}
 
 /* docked bars */
@@ -157,12 +162,17 @@ svg{display:block}
 @media (prefers-reduced-motion:reduce){*{transition-duration:0s!important;animation:none!important}}
 </style>
 
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}[hidden]{display:none!important}body{margin:0}</style>
+</head>
+<body>
 <div class="wrap" id="app">
   <div id="status" class="status" hidden></div>
   <div id="main"></div>
 </div>
 
 <input id="file" type="file" accept="audio/*,.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.aif,.aiff" multiple hidden>
+
+<input id="folder" type="file" webkitdirectory multiple hidden>
 
 <div id="mini" class="mini" hidden>
   <span class="cv" id="mcv" data-open aria-hidden="true"></span>
@@ -359,8 +369,9 @@ function header(title){
 function emptyView(){
   return header('Ma Musique')+
   '<div class="empty"><div class="big">'+ic('note')+'</div><h2>Ajoute ta musique</h2>'+
-  '<p>Choisis des morceaux dans l’app Fichiers de ton iPhone. Ils restent sur ton appareil et la bibliothèque est gardée pour la prochaine fois.</p>'+
-  '<button class="btn" data-add>'+ic('plus')+'Importer des morceaux</button></div>';
+  '<p>Ouvre Téléchargements (ou n’importe quel dossier), appuie sur « Sélectionner » puis « Tout ». Seuls les fichiers audio sont gardés, le reste est ignoré. Tout reste sur ton appareil.</p>'+
+  '<button class="btn" data-add>'+ic('plus')+'Choisir mes morceaux</button>'+
+  '<button class="btn alt" data-folder>'+ic('albums')+'Importer un dossier entier</button></div>';
 }
 function songsView(){
   shown=sortSongs(tracks);
@@ -368,6 +379,7 @@ function songsView(){
   var mins=Math.round(tot/60);
   return header('Titres')+'<p class="sub">'+plural(tracks.length,'titre','titres')+(mins?' · '+(mins>=60?Math.floor(mins/60)+' h '+String(mins%60).padStart(2,'0'):mins+' min'):'')+'</p>'+actions()+
     '<div class="list">'+shown.map(row).join('')+'</div>'+
+    '<div class="foot"><button class="link" data-folder>Importer un dossier</button></div>'+
     '<div class="foot"><button class="link" data-clear>'+(confirmClear?'Confirmer : tout supprimer':'Vider la bibliothèque')+'</button></div>';
 }
 function albumsView(){
@@ -540,18 +552,21 @@ document.addEventListener('keydown',function(e){
   if(e.key==='Enter'&&e.target&&e.target.getAttribute&&e.target.getAttribute('data-open')!==null)openSheet(true);
 });
 
-$('#file').addEventListener('change',function(e){
+function onPick(e){
   var f=e.target.files;
   if(f&&f.length)addFiles(f);
   e.target.value='';
-});
+}
+$('#file').addEventListener('change',onPick);
+$('#folder').addEventListener('change',onPick);
 
 document.addEventListener('click',function(e){
-  var el=e.target.closest?e.target.closest('[data-tab],[data-add],[data-play],[data-playall],[data-shuffle],[data-album],[data-artist],[data-back],[data-clear],[data-open]'):null;
+  var el=e.target.closest?e.target.closest('[data-tab],[data-add],[data-folder],[data-play],[data-playall],[data-shuffle],[data-album],[data-artist],[data-back],[data-clear],[data-open]'):null;
   if(!el)return;
   var d=el.dataset;
   if(el.hasAttribute('data-tab')){tab=d.tab;detail=null;confirmClear=false;render();window.scrollTo(0,0);if(tab==='search'){var q=$('#q');if(q)q.focus()}return}
   if(el.hasAttribute('data-add')){$('#file').click();return}
+  if(el.hasAttribute('data-folder')){$('#folder').click();return}
   if(el.hasAttribute('data-play')){
     var i=-1;for(var k=0;k<shown.length;k++)if(shown[k].id===d.play){i=k;break}
     if(i>-1)playQueue(shown,i,false);
@@ -584,4 +599,5 @@ dbAll().then(function(recs){
 })();
 </script>
 
-</body></html>
+</body>
+</html>
