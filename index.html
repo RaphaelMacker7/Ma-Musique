@@ -384,7 +384,7 @@ async function addFiles(files){
     var d=await getDuration(u);
     var rec={id:id,file:blob,title:m.title,artist:m.artist,album:m.album,trackNo:m.trackNo,art:m.art,duration:d};
     dbPut(rec);
-    hydrate(rec);rec.url=u;
+    hydrate(rec);rec.url=u;rec.mem=true;
     tracks.push(rec);added++;
     if(i%4===3)render();
   }
@@ -506,10 +506,22 @@ function playQueue(list,start,shuf){
 }
 function load(play){
   var t=cur();if(!t)return;
-  audio.src=srcUrl(t);
-  applyTempo();
-  if(play)audio.play().catch(function(){});
   mediaSession(t);ui();prog();
+  prepare(t).then(function(){
+    if(cur()!==t)return;
+    audio.src=srcUrl(t);
+    applyTempo();
+    if(play)audio.play().catch(function(){toast('Appuie sur lecture pour démarrer.')});
+  });
+}
+/* iPhone : un fichier relu depuis le stockage du navigateur est d'abord copié en mémoire pour être lisible */
+function prepare(t){
+  if(t.mem&&t.url)return Promise.resolve();
+  return t.file.arrayBuffer().then(function(b){
+    var bl=new Blob([b],{type:'audio/mpeg'});
+    if(t.url)URL.revokeObjectURL(t.url);
+    t.file=bl;t.url=URL.createObjectURL(bl);t.mem=true;
+  }).catch(function(){});
 }
 function next(auto){
   if(qi<queue.length-1){qi++;load(true)}
